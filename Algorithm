@@ -1,0 +1,346 @@
+import tkinter as tk
+from tkinter import ttk, simpledialog
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+
+class ProcessSchedulerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Process Scheduler Simulator")
+        self.root.geometry("1000x700")
+
+        self.process_list = []
+
+        # Input Frame
+        self.input_frame = ttk.LabelFrame(root, text="Process Input")
+        self.input_frame.pack(fill="x", padx=10, pady=5)
+
+        ttk.Label(self.input_frame, text="Process ID:").grid(row=0, column=0, padx=5, pady=5)
+        self.pid_entry = ttk.Entry(self.input_frame)
+        self.pid_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(self.input_frame, text="Arrival Time:").grid(row=0, column=2, padx=5, pady=5)
+        self.at_entry = ttk.Entry(self.input_frame)
+        self.at_entry.grid(row=0, column=3, padx=5, pady=5)
+
+        ttk.Label(self.input_frame, text="Burst Time:").grid(row=0, column=4, padx=5, pady=5)
+        self.bt_entry = ttk.Entry(self.input_frame)
+        self.bt_entry.grid(row=0, column=5, padx=5, pady=5)
+
+        ttk.Label(self.input_frame, text="Priority:").grid(row=0, column=6, padx=5, pady=5)
+        self.priority_entry = ttk.Entry(self.input_frame)
+        self.priority_entry.grid(row=0, column=7, padx=5, pady=5)
+
+        self.add_button = ttk.Button(self.input_frame, text="Add Process", command=self.add_process)
+        self.add_button.grid(row=0, column=8, padx=5, pady=5)
+
+        # Process Table
+        self.table_frame = ttk.Frame(root)
+        self.table_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        columns = ("PID", "Arrival Time", "Burst Time", "Completion Time", "Priority", "Waiting Time", "Turnaround Time", "Response Time")
+        self.tree = ttk.Treeview(self.table_frame, columns=columns, show="headings")
+        for col in columns:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=100, anchor='center')
+        self.tree.pack(fill="both", expand=True)
+
+        # Buttons for process modification
+        self.modify_frame = ttk.Frame(root)
+        self.modify_frame.pack(pady=5)
+
+        self.edit_button = ttk.Button(self.modify_frame, text="Edit Process", command=self.edit_process)
+        self.edit_button.pack(side="left", padx=5)
+
+        self.remove_button = ttk.Button(self.modify_frame, text="Remove Process", command=self.remove_process)
+        self.remove_button.pack(side="left", padx=5)
+
+        # Scheduling Buttons
+        self.button_frame = ttk.Frame(root)
+        self.button_frame.pack(pady=10)
+
+        ttk.Button(self.button_frame, text="FCFS", command=self.run_fcfs).pack(side="left", padx=5)
+        ttk.Button(self.button_frame, text="SJF (NP)", command=self.run_sjf_np).pack(side="left", padx=5)
+        ttk.Button(self.button_frame, text="SJF (P)", command=self.run_sjf_p).pack(side="left", padx=5)
+        ttk.Button(self.button_frame, text="Round Robin", command=self.run_rr).pack(side="left", padx=5)
+        ttk.Button(self.button_frame, text="Priority (NP)", command=self.run_priority_np).pack(side="left", padx=5)
+        ttk.Button(self.button_frame, text="Priority (P)", command=self.run_priority_p).pack(side="left", padx=5)
+
+        self.avg_label = ttk.Label(root, text="")
+        self.avg_label.pack()
+
+    def clear_entries(self):
+        self.pid_entry.delete(0, tk.END)
+        self.at_entry.delete(0, tk.END)
+        self.bt_entry.delete(0, tk.END)
+        self.priority_entry.delete(0, tk.END)
+
+    def add_process(self):
+        pid = self.pid_entry.get()
+        arrival = self.at_entry.get()
+        burst = self.bt_entry.get()
+        priority = self.priority_entry.get()
+
+        if pid and arrival and burst:
+            process = {
+                "pid": pid,
+                "arrival": int(arrival),
+                "burst": int(burst),
+                "priority": int(priority) if priority else 0,
+                "remaining": int(burst),
+                "start": None,
+                "completion": None
+            }
+            self.process_list.append(process)
+            self.tree.insert("", "end", values=(pid, arrival, burst, "", priority, "", "", ""))
+            self.clear_entries()
+
+    def remove_process(self):
+        selected = self.tree.selection()
+        if selected:
+            index = self.tree.index(selected[0])
+            del self.process_list[index]
+            self.tree.delete(selected)
+
+    def edit_process(self):
+        selected = self.tree.selection()
+        if selected:
+            index = self.tree.index(selected[0])
+            values = self.tree.item(selected, "values")
+            self.pid_entry.insert(0, values[0])
+            self.at_entry.insert(0, values[1])
+            self.bt_entry.insert(0, values[2])
+            self.priority_entry.insert(0, values[4])
+            self.tree.delete(selected)
+            del self.process_list[index]
+
+    def run_fcfs(self):
+        self.reset_results()
+        processes = sorted(self.process_list, key=lambda x: x["arrival"])
+        time = 0
+        results = []
+
+        for p in processes:
+            if time < p["arrival"]:
+                time = p["arrival"]
+            start = time
+            p["start"] = start
+            time += p["burst"]
+            p["completion"] = time
+            wt = start - p["arrival"]
+            tat = p["completion"] - p["arrival"]
+            rt = wt
+            results.append((p["pid"], p["arrival"], p["burst"], p["completion"], p["priority"], wt, tat, rt))
+
+        self.update_table(results)
+        self.plot_gantt_chart(results)
+        self.display_averages(results)
+
+    def run_sjf_np(self):
+        self.reset_results()
+        processes = sorted(self.process_list, key=lambda x: (x["arrival"], x["burst"]))
+        time = 0
+        ready = []
+        results = []
+        completed = []
+
+        while len(completed) < len(processes):
+            for p in processes:
+                if p not in ready and p not in completed and p["arrival"] <= time:
+                    ready.append(p)
+
+            if ready:
+                ready.sort(key=lambda x: x["burst"])
+                current = ready.pop(0)
+                start = time
+                current["start"] = start
+                time += current["burst"]
+                current["completion"] = time
+                wt = start - current["arrival"]
+                tat = current["completion"] - current["arrival"]
+                rt = wt
+                completed.append(current)
+                results.append((current["pid"], current["arrival"], current["burst"], current["completion"],
+                                current["priority"], wt, tat, rt))
+            else:
+                time += 1
+
+        self.update_table(results)
+        self.plot_gantt_chart(results)
+        self.display_averages(results)
+
+    def run_sjf_p(self):
+        self.reset_results()
+        processes = [p.copy() for p in self.process_list]
+        time = 0
+        results = []
+        n = len(processes)
+        completed = 0
+
+        while completed < n:
+            ready = [p for p in processes if p["arrival"] <= time and p["remaining"] > 0]
+            if ready:
+                ready.sort(key=lambda x: x["remaining"])
+                p = ready[0]
+                if p["start"] is None:
+                    p["start"] = time
+                p["remaining"] -= 1
+                time += 1
+                if p["remaining"] == 0:
+                    p["completion"] = time
+                    wt = p["completion"] - p["arrival"] - p["burst"]
+                    tat = p["completion"] - p["arrival"]
+                    rt = p["start"] - p["arrival"]
+                    results.append((p["pid"], p["arrival"], p["burst"], p["completion"],
+                                    p["priority"], wt, tat, rt))
+                    completed += 1
+            else:
+                time += 1
+
+        self.update_table(results)
+        self.plot_gantt_chart(results)
+        self.display_averages(results)
+
+    def run_rr(self):
+        self.reset_results()
+        tq = simpledialog.askinteger("Time Quantum", "Enter Time Quantum:", minvalue=1)
+        if not tq:
+            return
+        processes = [p.copy() for p in self.process_list]
+        queue = []
+        time = 0
+        results = []
+        index = 0
+        n = len(processes)
+        completed = 0
+
+        while completed < n:
+            for p in processes:
+                if p["arrival"] == time:
+                    queue.append(p)
+
+            if queue:
+                p = queue.pop(0)
+                if p["start"] is None:
+                    p["start"] = time
+                execute = min(tq, p["remaining"])
+                p["remaining"] -= execute
+                time += execute
+
+                for x in processes:
+                    if x["arrival"] > time - execute and x["arrival"] <= time:
+                        queue.append(x)
+
+                if p["remaining"] > 0:
+                    queue.append(p)
+                else:
+                    p["completion"] = time
+                    wt = p["completion"] - p["arrival"] - p["burst"]
+                    tat = p["completion"] - p["arrival"]
+                    rt = p["start"] - p["arrival"]
+                    results.append((p["pid"], p["arrival"], p["burst"], p["completion"],
+                                    p["priority"], wt, tat, rt))
+                    completed += 1
+            else:
+                time += 1
+
+        self.update_table(results)
+        self.plot_gantt_chart(results)
+        self.display_averages(results)
+
+    def run_priority_np(self):
+        self.reset_results()
+        processes = [p.copy() for p in self.process_list]
+        time = 0
+        results = []
+        completed = []
+
+        while len(completed) < len(processes):
+            ready = [p for p in processes if p not in completed and p["arrival"] <= time]
+            if ready:
+                ready.sort(key=lambda x: x["priority"])
+                p = ready[0]
+                start = time
+                p["start"] = start
+                time += p["burst"]
+                p["completion"] = time
+                wt = start - p["arrival"]
+                tat = p["completion"] - p["arrival"]
+                rt = wt
+                completed.append(p)
+                results.append((p["pid"], p["arrival"], p["burst"], p["completion"], p["priority"], wt, tat, rt))
+            else:
+                time += 1
+
+        self.update_table(results)
+        self.plot_gantt_chart(results)
+        self.display_averages(results)
+
+    def run_priority_p(self):
+        self.reset_results()
+        processes = [p.copy() for p in self.process_list]
+        time = 0
+        results = []
+        completed = 0
+
+        while completed < len(processes):
+            ready = [p for p in processes if p["arrival"] <= time and p["remaining"] > 0]
+            if ready:
+                ready.sort(key=lambda x: x["priority"])
+                p = ready[0]
+                if p["start"] is None:
+                    p["start"] = time
+                p["remaining"] -= 1
+                time += 1
+                if p["remaining"] == 0:
+                    p["completion"] = time
+                    wt = p["completion"] - p["arrival"] - p["burst"]
+                    tat = p["completion"] - p["arrival"]
+                    rt = p["start"] - p["arrival"]
+                    results.append((p["pid"], p["arrival"], p["burst"], p["completion"], p["priority"], wt, tat, rt))
+                    completed += 1
+            else:
+                time += 1
+
+        self.update_table(results)
+        self.plot_gantt_chart(results)
+        self.display_averages(results)
+
+    def update_table(self, results):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        for process in results:
+            self.tree.insert("", "end", values=process)
+
+    def plot_gantt_chart(self, results):
+        fig, ax = plt.subplots(figsize=(10, 3))
+        y_pos = range(len(results))
+        start_times = [p[3] - p[2] for p in results]
+        ax.barh(y_pos, [p[2] for p in results], left=start_times)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels([p[0] for p in results])
+        ax.set_xlabel("Time")
+        ax.set_title("Gantt Chart")
+        plt.tight_layout()
+
+        canvas = FigureCanvasTkAgg(fig, master=self.root)
+        canvas.get_tk_widget().pack(side="top", fill="x", padx=10)
+        canvas.draw()
+
+    def display_averages(self, results):
+        avg_wt = sum(p[5] for p in results) / len(results)
+        avg_tat = sum(p[6] for p in results) / len(results)
+        self.avg_label.config(text=f"Avg Waiting Time: {avg_wt:.2f} | Avg Turnaround Time: {avg_tat:.2f}")
+
+    def reset_results(self):
+        for widget in self.root.pack_slaves():
+            if isinstance(widget, FigureCanvasTkAgg):
+                widget.get_tk_widget().destroy()
+        self.avg_label.config(text="")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ProcessSchedulerGUI(root)
+    root.mainloop()
